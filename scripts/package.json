@@ -1,0 +1,9 @@
+{
+  "name": "explain-yourself-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Runtime for the explain-yourself skill. show.mjs installs these on first run.",
+  "dependencies": {
+    "playwright-core": "1.65.1"
+  }
+}
