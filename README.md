@@ -10,7 +10,7 @@ An agent skill that opens your app in Chrome, circles each change with a hand-dr
 
 Almost nobody writes code by hand anymore, and almost nobody reads it either. Agents do the work, then hand you a neat summary: "✅ Updated the form, ✅ added validation, ✅ refactored X". It sounds complete, but you still don't really know what happened, or where it lives in the actual product.
 
-I have ADHD and I'm a very visual person. A wall of text about a change is the hardest possible way for me to understand it. What I wanted was the way a teammate would show me:
+I'm a very visual person. A wall of text about a change is the hardest possible way for me to understand it. What I wanted was the way a teammate would show me:
 
 > "Look here, this button changed. Now watch what happens when you type a bad email."
 
