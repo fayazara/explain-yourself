@@ -166,32 +166,41 @@ const key = process.env.ELEVENLABS_API_KEY || cfg.elevenlabsApiKey;
 const voiceId = process.env.ELEVENLABS_VOICE_ID || cfg.voiceId || DEFAULT_VOICE;
 const model = process.env.ELEVENLABS_MODEL || cfg.model || DEFAULT_MODEL;
 
-async function synth(text, attempt = 0) {
+async function synth(text) {
   const cacheDir = path.join(HOME, "cache");
   const file = path.join(
     cacheDir,
     `${crypto.createHash("sha256").update(`${voiceId}|${model}|${text}`).digest("hex")}.mp3`,
   );
   if (fs.existsSync(file)) return fs.readFileSync(file);
-  const res = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`,
-    {
-      method: "POST",
-      headers: { "xi-api-key": key, "content-type": "application/json", accept: "audio/mpeg" },
-      body: JSON.stringify({ text, model_id: model }),
-      signal: AbortSignal.timeout(30000),
-    },
-  );
-  if (res.status === 429 && attempt < 5) {
-    // Concurrency/rate limit: wait and retry.
-    await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
-    return synth(text, attempt + 1);
+  for (let attempt = 1; ; attempt++) {
+    let res;
+    try {
+      res = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`,
+        {
+          method: "POST",
+          headers: { "xi-api-key": key, "content-type": "application/json", accept: "audio/mpeg" },
+          body: JSON.stringify({ text, model_id: model }),
+          signal: AbortSignal.timeout(60000),
+        },
+      );
+    } catch (e) {
+      // Timeout or network hiccup: retry.
+      if (attempt < 4) continue;
+      throw new Error(e.name === "TimeoutError" ? "ElevenLabs timed out" : e.message);
+    }
+    // Rate limit or a server error: wait and retry.
+    if ((res.status === 429 || res.status >= 500) && attempt < 6) {
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+      continue;
+    }
+    if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(file, buf);
+    return buf;
   }
-  if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  fs.mkdirSync(cacheDir, { recursive: true });
-  fs.writeFileSync(file, buf);
-  return buf;
 }
 
 const audio = new Array(tour.steps.length).fill(null);
@@ -210,12 +219,17 @@ if (key) {
     }
   };
   await Promise.all([worker(), worker()]);
-  results.forEach((r, i) => {
-    if (r.ok) audio[i] = `data:audio/mpeg;base64,${r.value.toString("base64")}`;
-  });
   const failed = results.filter((r) => !r.ok);
-  console.log(`${tour.steps.length - failed.length}/${tour.steps.length} ok`);
-  if (failed.length) console.log(`  (fell back to browser speech: ${failed[0].reason.message})`);
+  if (failed.length) {
+    // Never switch voices mid-tour: if any clip is missing, use one voice for all of it.
+    // Clips that did succeed are cached, so the next run only fetches the missing ones.
+    console.log(`${tour.steps.length - failed.length}/${tour.steps.length} ok`);
+    console.log(`  ${failed[0].reason.message}. Using the browser voice for the whole tour.`);
+    console.log("  Run the tour again to retry ElevenLabs.");
+  } else {
+    results.forEach((r, i) => (audio[i] = `data:audio/mpeg;base64,${r.value.toString("base64")}`));
+    console.log(`${tour.steps.length}/${tour.steps.length} ok`);
+  }
 } else {
   console.log("voice: browser speech (run `node show.mjs --setup` to use ElevenLabs)");
 }
